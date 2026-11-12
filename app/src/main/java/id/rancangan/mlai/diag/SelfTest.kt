@@ -88,27 +88,60 @@ object SelfTest {
         }
     }
 
+    /**
+     * Open the Test Canvas and WAIT until it is provably the foreground,
+     * resumed activity before any touch is injected. Earlier runs injected
+     * after a blind sleep and scored zero events — consistent with the
+     * touches landing on whatever window was actually on top. Returns null
+     * when the canvas never comes to the front; the caller then reports
+     * BELUM with that reason instead of a fake GAGAL.
+     */
+    private fun openCanvasAndWait(context: Context): TestCanvasActivity? {
+        val intent = Intent(context, TestCanvasActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        repeat(20) {
+            val inst = TestCanvasActivity.instance
+            if (inst != null && TestCanvasActivity.inForeground) return inst
+            Thread.sleep(250)
+        }
+        return null
+    }
+
     private fun ujiSentuhKanvas(context: Context): HasilUji {
         val nama = "Urutan sentuh mendarat di Kanvas Uji"
         if (MlAccessibilityService.instance == null) {
             return HasilUji(nama, Vonis.BELUM, "layanan aksesibilitas belum terhubung")
         }
-        val (width, height) = displaySize(context)
+        val canvas = openCanvasAndWait(context)
+            ?: return HasilUji(
+                nama, Vonis.BELUM,
+                "kanvas uji tidak pernah menjadi layar terdepan dalam 5 detik — sentuhan tidak dijalankan"
+            )
+        // Metrics read AFTER the canvas is up, from the canvas itself, so
+        // the coordinate space is the one the canvas is actually drawn in.
+        val (width, height) = displaySize(canvas)
+        val backend = AccessibilityTouchBackend()
+
+        // Control tap at canvas centre: bisects "canvas cannot hear"
+        // from "the scripted sequence is broken".
+        val beforeControl = TouchLog.totalEvents
+        backend.tap(width / 2f, height / 2f)
+        Thread.sleep(500)
+        val controlEvents = TouchLog.totalEvents - beforeControl
+
         val before = TouchLog.totalEvents
-
-        val intent = Intent(context, TestCanvasActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-        Thread.sleep(1500)
-
-        val script = ScriptedTouchTest.run(AccessibilityTouchBackend(), width, height)
+        val script = ScriptedTouchTest.run(backend, width, height)
         Thread.sleep(600)
         val newEvents = TouchLog.totalEvents - before
         TestCanvasActivity.instance?.finish()
 
-        val detail = "gestur diterima sistem: ketuk=%s geser=%s skill=%s; event baru di kanvas=%d".format(
-            script.tapAccepted, script.swipeAccepted, script.skillAccepted, newEvents
-        )
+        val detail = ("gestur diterima sistem: ketuk=%s geser=%s skill=%s; event baru di kanvas=%d; " +
+            "ketuk kontrol di tengah=%d event; ukuran dipakai=%dx%d, ukuran kanvas=%dx%d").format(
+                script.tapAccepted, script.swipeAccepted, script.skillAccepted, newEvents,
+                controlEvents, width, height,
+                TestCanvasActivity.viewWidth, TestCanvasActivity.viewHeight
+            )
         return when {
             !script.allAccepted() -> HasilUji(nama, Vonis.GAGAL, "sebagian gestur ditolak sistem. $detail")
             newEvents >= 6 -> HasilUji(nama, Vonis.LULUS, detail)
@@ -144,13 +177,25 @@ object SelfTest {
         if (state != ShizukuState.READY) {
             return HasilUji(nama, Vonis.BELUM, "Shizuku belum siap: ${state.label()}")
         }
-        val (width, height) = displaySize(context)
         val backend = ShizukuTouchBackend(context)
+        val canvas = openCanvasAndWait(context)
+        if (canvas == null) {
+            backend.close()
+            return HasilUji(
+                nama, Vonis.BELUM,
+                "kanvas uji tidak pernah menjadi layar terdepan dalam 5 detik — injeksi tidak dijalankan"
+            )
+        }
+        // Metrics from the foreground canvas itself (see ujiSentuhKanvas).
+        val (width, height) = displaySize(canvas)
 
-        val intent = Intent(context, TestCanvasActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-        Thread.sleep(1500)
+        // Control tap at canvas centre via the same Shizuku path: if even
+        // this lands nothing while the canvas is provably in front, the
+        // injection chain itself — not the canvas or the timing — is dead.
+        val beforeControl = TouchLog.totalEvents
+        backend.tap(width / 2f, height / 2f)
+        Thread.sleep(500)
+        val controlEvents = TouchLog.totalEvents - beforeControl
 
         TouchLog.resetMaxPointerCount()
         val eventsBefore = TouchLog.totalEvents
@@ -178,9 +223,12 @@ object SelfTest {
         backend.close()
 
         val detail = ("injeksi: joystickDown=%s skill=%s joystickRelease=%s; " +
-            "event baru di kanvas=%d; penunjuk terbanyak bersamaan=%d; alasan backend=%s").format(
+            "event baru di kanvas=%d; penunjuk terbanyak bersamaan=%d; alasan backend=%s; " +
+            "ketuk kontrol di tengah=%d event; ukuran dipakai=%dx%d, ukuran kanvas=%dx%d").format(
                 downOk, skillOk, releaseOk, newEvents, maxPointers,
-                firstError ?: backend.lastError ?: "(tidak ada)"
+                firstError ?: backend.lastError ?: "(tidak ada)",
+                controlEvents, width, height,
+                TestCanvasActivity.viewWidth, TestCanvasActivity.viewHeight
             )
         return when {
             !downOk || !skillOk || !releaseOk -> HasilUji(
