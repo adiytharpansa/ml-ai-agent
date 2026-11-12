@@ -177,8 +177,8 @@ object SelfTest {
         TestCanvasActivity.instance?.finish()
         backend.close()
 
-        val detail = "injeksi: joystickDown=%s skill=%s joystickRelease=%s; " +
-            "event baru di kanvas=%d; penunjuk terbanyak bersamaan=%d; alasan backend=%s".format(
+        val detail = ("injeksi: joystickDown=%s skill=%s joystickRelease=%s; " +
+            "event baru di kanvas=%d; penunjuk terbanyak bersamaan=%d; alasan backend=%s").format(
                 downOk, skillOk, releaseOk, newEvents, maxPointers,
                 firstError ?: backend.lastError ?: "(tidak ada)"
             )
