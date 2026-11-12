@@ -21,6 +21,7 @@ import id.rancangan.mlai.capture.CaptureService
 import id.rancangan.mlai.capture.CaptureStats
 import id.rancangan.mlai.diag.DiagnosticsWriter
 import id.rancangan.mlai.diag.SelfTest
+import id.rancangan.mlai.game.PracticeScript
 import id.rancangan.mlai.touch.AccessibilityTouchBackend
 import id.rancangan.mlai.touch.ScriptedTouchTest
 import id.rancangan.mlai.touch.ShizukuState
@@ -108,6 +109,15 @@ class MainActivity : ComponentActivity(), Shizuku.OnRequestPermissionResultListe
         }
         findViewById<Button>(R.id.btnTouchTest).setOnClickListener { runTouchTest() }
         btnSelfTest.setOnClickListener { runSelfTest() }
+        findViewById<Button>(R.id.btnPracticeScript).setOnClickListener {
+            // 10 seconds for the operator to switch to the game first.
+            Toast.makeText(
+                this,
+                "Naskah Latihan jalan 10 detik lagi — pindah ke game sekarang",
+                Toast.LENGTH_LONG
+            ).show()
+            uiHandler.postDelayed({ PracticeScript.start(this) }, 10_000)
+        }
 
         if (Build.VERSION.SDK_INT >= 33) {
             notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)

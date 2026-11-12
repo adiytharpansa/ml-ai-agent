@@ -46,6 +46,15 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Fase 0 Practice script trigger (adb broadcast while the game is in front). -->
+        <receiver
+            android:name=".game.ScriptTriggerReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="id.rancangan.mlai.RUN_PRACTICE_SCRIPT" />
+            </intent-filter>
+        </receiver>
+
         <!-- Required by the Shizuku API so the Shizuku manager can hand us its binder. -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
