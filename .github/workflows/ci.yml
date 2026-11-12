@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      # NOTE: CI invokes the provisioned `gradle` directly, not ./gradlew,
+      # because gradle-wrapper.jar is a binary that cannot travel through
+      # the snapshot push used to publish this repository. The wrapper
+      # files remain in the repo for local Android Studio use.
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+      - name: Assemble debug APK
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: uji-jalur-ml-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
