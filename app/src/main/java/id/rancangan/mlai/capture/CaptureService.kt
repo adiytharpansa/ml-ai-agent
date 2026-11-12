@@ -23,14 +23,17 @@ import android.util.DisplayMetrics
 import android.view.WindowManager
 import id.rancangan.mlai.diag.EvidenceFiles
 import id.rancangan.mlai.vision.FrameLuminance
+import id.rancangan.mlai.vision.GameStateStore
+import id.rancangan.mlai.vision.Perception
 
 /**
- * Modul 1 (Mata) — Fase 0 scope only.
+ * Modul 1 (Mata) capture + the Fase 1 wiring of Modul 2.
  *
  * Captures the screen through MediaProjection at a reduced size, measures
  * fps and the black-frame ratio, keeps the latest numbers in [CaptureStats],
- * and saves one sample PNG as proof. It does NOT interpret the frames —
- * reading game state is Modul 2, a later phase.
+ * and saves one sample PNG as proof. Since Fase 1 it also feeds each frame
+ * (throttled to 4 Hz) to [Perception], which publishes a written
+ * [id.rancangan.mlai.vision.GameState] and journals it once per second.
  */
 class CaptureService : Service() {
 
@@ -44,6 +47,11 @@ class CaptureService : Service() {
     private var frameWidth = 0
     private var frameHeight = 0
     private var sampleSaved = false
+
+    // Modul 2 (Fase 1): perception runs at 4 Hz on the capture thread and
+    // journals one state line per second — cheap reads, small regions.
+    private var lastPerceptionMs = 0L
+    private var lastJournalMs = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -172,6 +180,22 @@ class CaptureService : Service() {
         accumulator.addFrame(now, black)
         CaptureStats.publish(accumulator.snapshot(now), width, height, now)
 
+        // Fase 1: read the game state from this same frame (image still open).
+        if (now - lastPerceptionMs >= PERCEPTION_INTERVAL_MS) {
+            lastPerceptionMs = now
+            try {
+                val state = Perception.read(BufferFrameView(image), now)
+                GameStateStore.latest = state
+                if (now - lastJournalMs >= JOURNAL_INTERVAL_MS) {
+                    lastJournalMs = now
+                    EvidenceFiles.appendBoth(this, GAMESTATE_NAME, state.line() + "\n")
+                }
+            } catch (e: Exception) {
+                // A failed read must never kill the capture loop; the next
+                // frame tries again. The journal gap is the honest trace.
+            }
+        }
+
         if (!sampleSaved) {
             sampleSaved = saveSamplePng(image)
             CaptureStats.samplePngSaved = sampleSaved
@@ -232,6 +256,9 @@ class CaptureService : Service() {
         const val EXTRA_RESULT_CODE = "extra_result_code"
         const val EXTRA_RESULT_DATA = "extra_result_data"
         const val SAMPLE_PNG_NAME = "sample_frame.png"
+        const val GAMESTATE_NAME = "gamestate.txt"
+        private const val PERCEPTION_INTERVAL_MS = 250L
+        private const val JOURNAL_INTERVAL_MS = 1000L
         private const val NOTIFICATION_ID = 1001
         private const val MAX_WIDTH = 960
 

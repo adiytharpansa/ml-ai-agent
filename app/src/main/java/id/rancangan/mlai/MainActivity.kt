@@ -25,6 +25,7 @@ import id.rancangan.mlai.game.PracticeScript
 import id.rancangan.mlai.touch.AccessibilityTouchBackend
 import id.rancangan.mlai.touch.ScriptedTouchTest
 import id.rancangan.mlai.touch.ShizukuState
+import id.rancangan.mlai.vision.GameStateStore
 import rikka.shizuku.Shizuku
 
 /**
@@ -41,6 +42,7 @@ class MainActivity : ComponentActivity(), Shizuku.OnRequestPermissionResultListe
     private lateinit var tvAccessibility: TextView
     private lateinit var tvShizuku: TextView
     private lateinit var tvCapture: TextView
+    private lateinit var tvState: TextView
     private lateinit var tvDiagnostics: TextView
     private lateinit var btnSelfTest: Button
 
@@ -82,6 +84,7 @@ class MainActivity : ComponentActivity(), Shizuku.OnRequestPermissionResultListe
         tvAccessibility = findViewById(R.id.tvAccessibility)
         tvShizuku = findViewById(R.id.tvShizuku)
         tvCapture = findViewById(R.id.tvCapture)
+        tvState = findViewById(R.id.tvState)
         tvDiagnostics = findViewById(R.id.tvDiagnostics)
         btnSelfTest = findViewById(R.id.btnSelfTest)
 
@@ -213,6 +216,17 @@ class MainActivity : ComponentActivity(), Shizuku.OnRequestPermissionResultListe
             )
         } else {
             "Tangkapan: tidak berjalan"
+        }
+
+        val state = GameStateStore.latest
+        tvState.text = if (state == null) {
+            "Keadaan: belum terbaca"
+        } else {
+            val darah = state.darahPersen?.let { "$it%" } ?: "?"
+            val skills = state.skillSiap.joinToString("/") {
+                if (it == null) "?" else if (it) "siap" else "CD"
+            }
+            "Keadaan: layar=${state.layar}, darah=$darah, skill=$skills"
         }
     }
 

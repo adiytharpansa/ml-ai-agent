@@ -50,6 +50,13 @@
             android:layout_marginTop="4dp"
             android:text="Tangkapan: —" />
 
+        <TextView
+            android:id="@+id/tvState"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Keadaan: —" />
+
         <Button
             android:id="@+id/btnConsent"
             android:layout_width="match_parent"
