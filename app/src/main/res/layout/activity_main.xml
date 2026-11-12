@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Uji Jalur ML — Fase 0"
+            android:textAppearance="@android:style/TextAppearance.Material.Large" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Panel status jalur HP: rekam layar, aksesibilitas, Shizuku, dan statistik tangkapan. Urutan uji: beri izin rekam → mulai layanan → buka Kanvas Uji → jalankan Uji Mandiri."
+            android:textAppearance="@android:style/TextAppearance.Material.Small" />
+
+        <TextView
+            android:id="@+id/tvConsent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Izin rekam layar: —" />
+
+        <TextView
+            android:id="@+id/tvAccessibility"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Aksesibilitas: —" />
+
+        <TextView
+            android:id="@+id/tvShizuku"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Shizuku: —" />
+
+        <TextView
+            android:id="@+id/tvCapture"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Tangkapan: —" />
+
+        <Button
+            android:id="@+id/btnConsent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Minta Izin Rekam Layar" />
+
+        <Button
+            android:id="@+id/btnStart"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Mulai Layanan" />
+
+        <Button
+            android:id="@+id/btnStop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Berhenti" />
+
+        <Button
+            android:id="@+id/btnAccessibilitySettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Buka Pengaturan Aksesibilitas" />
+
+        <Button
+            android:id="@+id/btnShizukuPermission"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Minta Izin Shizuku" />
+
+        <Button
+            android:id="@+id/btnCanvas"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Layar Kanvas Uji" />
+
+        <Button
+            android:id="@+id/btnTouchTest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Uji Sentuh Aksesibilitas" />
+
+        <Button
+            android:id="@+id/btnSelfTest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Uji Mandiri Fase 0" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="Diagnostik"
+            android:textAppearance="@android:style/TextAppearance.Material.Medium" />
+
+        <TextView
+            android:id="@+id/tvDiagnostics"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="monospace"
+            android:text="Belum ada hasil uji. Tekan “Uji Mandiri Fase 0”."
+            android:textSize="12sp" />
+    </LinearLayout>
+</ScrollView>

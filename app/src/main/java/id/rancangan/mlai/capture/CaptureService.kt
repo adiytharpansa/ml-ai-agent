@@ -1,0 +1,248 @@
+package id.rancangan.mlai.capture
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.PixelFormat
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.media.Image
+import android.media.ImageReader
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.IBinder
+import android.util.DisplayMetrics
+import android.view.WindowManager
+import id.rancangan.mlai.diag.EvidenceFiles
+import id.rancangan.mlai.vision.FrameLuminance
+
+/**
+ * Modul 1 (Mata) — Fase 0 scope only.
+ *
+ * Captures the screen through MediaProjection at a reduced size, measures
+ * fps and the black-frame ratio, keeps the latest numbers in [CaptureStats],
+ * and saves one sample PNG as proof. It does NOT interpret the frames —
+ * reading game state is Modul 2, a later phase.
+ */
+class CaptureService : Service() {
+
+    private var projection: MediaProjection? = null
+    private var virtualDisplay: VirtualDisplay? = null
+    private var imageReader: ImageReader? = null
+    private var captureThread: HandlerThread? = null
+    private var captureHandler: Handler? = null
+
+    private val accumulator = CaptureStatsAccumulator()
+    private var frameWidth = 0
+    private var frameHeight = 0
+    private var sampleSaved = false
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopCapture()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_START -> {
+                val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
+                @Suppress("DEPRECATION")
+                val resultData: Intent? = intent.getParcelableExtra(EXTRA_RESULT_DATA)
+                if (resultData == null) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                startForegroundWithNotification()
+                startCapture(resultCode, resultData)
+            }
+        }
+        return START_STICKY
+    }
+
+    private fun startForegroundWithNotification() {
+        val channelId = "uji_jalur_capture"
+        val nm = getSystemService(NotificationManager::class.java)
+        nm?.createNotificationChannel(
+            NotificationChannel(channelId, "Rekam Layar Uji Jalur", NotificationManager.IMPORTANCE_LOW)
+        )
+        val stopIntent = PendingIntent.getService(
+            this, 0,
+            Intent(this, CaptureService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification: Notification = Notification.Builder(this, channelId)
+            .setContentTitle("Uji Jalur ML — merekam layar")
+            .setContentText("Layanan tangkapan Fase 0 berjalan. Berhenti kapan saja dari sini.")
+            .setSmallIcon(android.R.drawable.presence_video_online)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Berhenti", stopIntent)
+            .build()
+        // minSdk is 29, so the typed startForeground overload is always available.
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+    }
+
+    private fun startCapture(resultCode: Int, resultData: Intent) {
+        stopCapture()
+        accumulator.reset()
+        CaptureStats.reset()
+        sampleSaved = false
+
+        captureThread = HandlerThread("capture").also { it.start() }
+        captureHandler = Handler(captureThread!!.looper)
+
+        val wm = getSystemService(WindowManager::class.java)
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm?.defaultDisplay?.getRealMetrics(metrics)
+        val scale = if (metrics.widthPixels > MAX_WIDTH) MAX_WIDTH.toDouble() / metrics.widthPixels else 1.0
+        frameWidth = (metrics.widthPixels * scale).toInt().coerceAtLeast(2) and 0x7FFFFFFE // even
+        frameHeight = (metrics.heightPixels * scale).toInt().coerceAtLeast(2) and 0x7FFFFFFE
+
+        val mpm = getSystemService(MediaProjectionManager::class.java)
+        projection = mpm?.getMediaProjection(resultCode, resultData)
+        // Android 14 requires a registered callback before createVirtualDisplay.
+        projection?.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() {
+                stopCapture()
+                stopSelf()
+            }
+        }, captureHandler)
+
+        imageReader = ImageReader.newInstance(frameWidth, frameHeight, PixelFormat.RGBA_8888, 2)
+        imageReader?.setOnImageAvailableListener({ reader ->
+            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            try {
+                processFrame(image)
+            } finally {
+                image.close()
+            }
+        }, captureHandler)
+
+        virtualDisplay = projection?.createVirtualDisplay(
+            "uji-jalur-capture",
+            frameWidth, frameHeight, metrics.densityDpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader?.surface, null, captureHandler
+        )
+        CaptureStats.serviceRunning = true
+    }
+
+    private fun processFrame(image: Image) {
+        val plane = image.planes[0]
+        val buffer = plane.buffer
+        val pixelStride = plane.pixelStride
+        val rowStride = plane.rowStride
+        val width = image.width
+        val height = image.height
+
+        // Sample a coarse grid (~80 x 45 points) — enough for a black-frame
+        // verdict, cheap enough to run on every frame on a mid-range phone.
+        val stepX = maxOf(1, width / 80)
+        val stepY = maxOf(1, height / 45)
+        val samples = IntArray(80 * 45 + 45)
+        var n = 0
+        var y = 0
+        while (y < height) {
+            var x = 0
+            while (x < width) {
+                val idx = y * rowStride + x * pixelStride
+                if (idx + 2 < buffer.capacity()) {
+                    val r = buffer.get(idx).toInt() and 0xFF
+                    val g = buffer.get(idx + 1).toInt() and 0xFF
+                    val b = buffer.get(idx + 2).toInt() and 0xFF
+                    if (n < samples.size) samples[n++] = (r shl 16) or (g shl 8) or b
+                }
+                x += stepX
+            }
+            y += stepY
+        }
+        val used = samples.copyOf(n)
+        val black = FrameLuminance.isBlackFrame(used)
+
+        val now = System.currentTimeMillis()
+        accumulator.addFrame(now, black)
+        CaptureStats.publish(accumulator.snapshot(now), width, height, now)
+
+        if (!sampleSaved) {
+            sampleSaved = saveSamplePng(image)
+            CaptureStats.samplePngSaved = sampleSaved
+        }
+    }
+
+    /**
+     * Saves the current frame as sample_frame.png, once per session.
+     * Written to BOTH internal filesDir and the external app files dir
+     * (via EvidenceFiles) so the proof frame can be pulled with `adb pull`
+     * during direct testing — internal storage cannot.
+     */
+    private fun saveSamplePng(image: Image): Boolean {
+        return try {
+            val plane = image.planes[0]
+            val buffer = plane.buffer
+            val pixelStride = plane.pixelStride
+            val rowStride = plane.rowStride
+            val paddedWidth = rowStride / pixelStride
+            buffer.rewind()
+            val padded = Bitmap.createBitmap(paddedWidth, image.height, Bitmap.Config.ARGB_8888)
+            padded.copyPixelsFromBuffer(buffer)
+            val cropped = if (paddedWidth == image.width) padded
+            else Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
+            val bytes = java.io.ByteArrayOutputStream().use { baos ->
+                cropped.compress(Bitmap.CompressFormat.PNG, 100, baos)
+                baos.toByteArray()
+            }
+            if (cropped !== padded) cropped.recycle()
+            padded.recycle()
+            EvidenceFiles.writeBoth(this, SAMPLE_PNG_NAME, bytes).isNotEmpty()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun stopCapture() {
+        CaptureStats.serviceRunning = false
+        try { virtualDisplay?.release() } catch (_: Exception) {}
+        virtualDisplay = null
+        try { imageReader?.close() } catch (_: Exception) {}
+        imageReader = null
+        try { projection?.stop() } catch (_: Exception) {}
+        projection = null
+        captureThread?.quitSafely()
+        captureThread = null
+        captureHandler = null
+    }
+
+    override fun onDestroy() {
+        stopCapture()
+        super.onDestroy()
+    }
+
+    companion object {
+        const val ACTION_START = "id.rancangan.mlai.action.CAPTURE_START"
+        const val ACTION_STOP = "id.rancangan.mlai.action.CAPTURE_STOP"
+        const val EXTRA_RESULT_CODE = "extra_result_code"
+        const val EXTRA_RESULT_DATA = "extra_result_data"
+        const val SAMPLE_PNG_NAME = "sample_frame.png"
+        private const val NOTIFICATION_ID = 1001
+        private const val MAX_WIDTH = 960
+
+        fun startIntent(context: Context, resultCode: Int, resultData: Intent): Intent =
+            Intent(context, CaptureService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_RESULT_CODE, resultCode)
+                putExtra(EXTRA_RESULT_DATA, resultData)
+            }
+
+        fun stopIntent(context: Context): Intent =
+            Intent(context, CaptureService::class.java).setAction(ACTION_STOP)
+    }
+}

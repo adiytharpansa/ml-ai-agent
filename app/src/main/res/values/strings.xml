@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Uji Jalur ML</string>
+    <string name="accessibility_service_label">Uji Jalur ML — Sentuh Aksesibilitas</string>
+    <string name="accessibility_service_summary">Jalur sentuh cadangan Fase 0: menjalankan ketuk/geser uji atas perintah aplikasi Uji Jalur ML.</string>
+</resources>
