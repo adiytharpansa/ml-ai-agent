@@ -23,6 +23,21 @@ class TestCanvasActivity : Activity() {
         refreshLog()
     }
 
+    override fun onResume() {
+        super.onResume()
+        inForeground = true
+        val view = findViewById<android.view.View>(R.id.canvasView)
+        view.post {
+            viewWidth = view.width
+            viewHeight = view.height
+        }
+    }
+
+    override fun onPause() {
+        inForeground = false
+        super.onPause()
+    }
+
     private fun refreshLog() {
         val lines = TouchLog.recentLines(12)
         tvTouchLog.text = if (lines.isEmpty()) "Log sentuh kosong — belum ada sentuhan."
@@ -38,5 +53,16 @@ class TestCanvasActivity : Activity() {
     companion object {
         @Volatile
         var instance: TestCanvasActivity? = null
+
+        /** True only while the canvas is the resumed, foreground activity. */
+        @Volatile
+        var inForeground: Boolean = false
+
+        /** The canvas view's real pixel size, captured after layout. */
+        @Volatile
+        var viewWidth: Int = 0
+
+        @Volatile
+        var viewHeight: Int = 0
     }
 }
