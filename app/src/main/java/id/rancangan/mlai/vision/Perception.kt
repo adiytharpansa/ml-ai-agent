@@ -19,34 +19,40 @@ interface FrameView {
  * Modul 2 (Paham Layar), Fase 1 — colour + pattern reading of the parts
  * of the HUD that never move (design §4, Modul 2, step 1):
  *
- *  - `layar`: the three skill buttons are saturated blue discs in fixed
- *    spots; if at least two of the three spots are strongly blue, the
- *    match HUD is on screen. Conservative on purpose: the Fase 1 gate
- *    forbids ever confusing a match with the lobby.
- *  - `skill_siap`: a ready skill icon is bright; on cooldown the game
- *    lays a dark shade over it (and draws a pale countdown digit). Mean
- *    disc luminance separates the two states by a wide margin.
+ *  - `layar`: a skill button counts as PRESENT when its centre is
+ *    blue-dominant or its rim is — the rim keeps glowing blue even under
+ *    the dark cooldown shade and on not-yet-learned icons. Two or more
+ *    present buttons = the match HUD. Conservative on purpose: the
+ *    Fase 1 gate forbids ever confusing a match with the lobby.
+ *  - `skill_siap`: a ready skill icon is bright; on cooldown (or not yet
+ *    learned) it sits dark under a shade. Mean centre luminance
+ *    separates the states by a wide measured margin.
  *  - `darah_persen`: the hero stands near screen centre (the camera
  *    follows), HP bar floating just above. We scan a centre window for
  *    the longest horizontal run of HP-green and express it against the
- *    bar's known full length (a fixed fraction of frame width).
+ *    bar's full length (a fixed fraction of frame width).
  *
- * All thresholds are v1 values, exposed raw in [GameState] so the
- * calibration pass tunes numbers, not code structure.
+ * Every threshold below was measured on real frames (Fase 1 calibration,
+ * 2026-11-13): five match frames from Training Camp and a live Vs A.I.
+ * match, plus splash/panel/chat frames as negatives — the v2 rule set
+ * reads all of them correctly.
  */
 object Perception {
 
-    /** Full overhead HP bar length as a fraction of frame width (measured: ~118px at 2340). */
-    const val HP_BAR_FULL_FRAC = 0.050
+    /** Full overhead HP bar length as a fraction of frame width (measured: 72–73px at 960). */
+    const val HP_BAR_FULL_FRAC = 0.076
 
     /** A green run shorter than this fraction of the full bar is not trusted as the HP bar. */
     const val HP_MIN_RUN_FRAC = 0.30
 
-    /** Disc luminance at/above this = skill ready; below = cooldown shade. */
+    /** Disc luminance at/above this = skill ready; below = cooldown shade (ready ≥140, dark ≤82 measured). */
     const val SKILL_READY_LUMINANCE = 100.0
 
-    /** Blue dominance (b − mean(r,g)) at/above this marks a skill disc as present. */
-    const val DISC_BLUE_DOMINANCE = 20.0
+    /** Centre blue dominance (b − mean(r,g)) at/above this marks a skill disc as present. */
+    const val DISC_CENTRE_DOMINANCE = 14.0
+
+    /** Rim blue dominance at/above this also marks a skill disc as present (dark discs keep a blue rim). */
+    const val DISC_RIM_DOMINANCE = 30.0
 
     /** HP bar green: strong green, clearly above red and blue. */
     fun isHpGreen(packedRgb: Int): Boolean {
@@ -64,11 +70,13 @@ object Perception {
         )
         var discsPresent = 0
         val skillLum = ArrayList<Double>(3)
+        val skillRimDom = ArrayList<Double>(3)
         val skillSiap = ArrayList<Boolean?>(3)
         for ((fx, fy) in centres) {
-            val (lum, dominance) = discStats(frame, fx, fy)
+            val (lum, centreDom, rimDom) = discStats(frame, fx, fy)
             skillLum.add(lum)
-            if (dominance >= DISC_BLUE_DOMINANCE) {
+            skillRimDom.add(rimDom)
+            if (centreDom >= DISC_CENTRE_DOMINANCE || rimDom >= DISC_RIM_DOMINANCE) {
                 discsPresent++
                 skillSiap.add(lum >= SKILL_READY_LUMINANCE)
             } else {
@@ -83,11 +91,17 @@ object Perception {
         } else {
             null
         }
-        return GameState(nowMs, layar, darah, skillSiap, skillLum, hpRunFrac)
+        return GameState(nowMs, layar, darah, skillSiap, skillLum, skillRimDom, hpRunFrac)
     }
 
-    /** Mean luminance and blue dominance over a small disc at fraction (fx, fy). */
-    private fun discStats(frame: FrameView, fx: Float, fy: Float): Pair<Double, Double> {
+    private data class DiscStats(val centreLum: Double, val centreDom: Double, val rimDom: Double)
+
+    /**
+     * Mean luminance + blue dominance over a small disc at fraction
+     * (fx, fy), plus mean blue dominance on a thin ring at the button's
+     * rim — the rim stays blue when the icon itself goes dark.
+     */
+    private fun discStats(frame: FrameView, fx: Float, fy: Float): DiscStats {
         val cx = (fx * frame.width).toInt()
         val cy = (fy * frame.height).toInt()
         val radius = max(3, (0.012 * frame.width).toInt())
@@ -115,8 +129,29 @@ object Perception {
             }
             dy += 2
         }
-        if (n == 0) return 0.0 to 0.0
-        return (lumSum / n) to (domSum / n)
+        // Rim: 60 samples around the circle at 0.021 * width from centre.
+        val rimRadius = 0.021 * frame.width
+        var rimN = 0
+        var rimDomSum = 0.0
+        var step = 0
+        while (step < 60) {
+            val angle = Math.toRadians(step * 6.0)
+            val x = cx + (rimRadius * Math.cos(angle)).toInt()
+            val y = cy + (rimRadius * Math.sin(angle)).toInt()
+            if (x in 0 until frame.width && y in 0 until frame.height) {
+                val c = frame.rgb(x.toInt(), y.toInt())
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+                rimDomSum += b - (r + g) / 2.0
+                rimN++
+            }
+            step++
+        }
+        val centreLum = if (n == 0) 0.0 else lumSum / n
+        val centreDom = if (n == 0) 0.0 else domSum / n
+        val rimDom = if (rimN == 0) 0.0 else rimDomSum / rimN
+        return DiscStats(centreLum, centreDom, rimDom)
     }
 
     /**

@@ -48,12 +48,13 @@ class PerceptionTest {
     }
 
     /**
-     * A match frame: HP bar at centre filled to [hpFrac], skill discs in
-     * ready colour or cooldown shade per [ready] (S1, S2, ULT order).
+     * A match frame: HP bar at centre filled to [hpFrac], skill discs
+     * painted with [discColours] (S1, S2, ULT order). Colours are the
+     * ranges measured on real frames in the Fase 1 calibration:
+     * ready icons are bright (lum ~140–220), cooldown and not-yet-learned
+     * icons sit dark (lum ~40–80) but keep a blue rim.
      */
-    private fun matchFrame(hpFrac: Double?, ready: List<Boolean>): FakeFrame {
-        val readyColour = (50 shl 16) or (130 shl 8) or 235
-        val cdColour = (28 shl 16) or (38 shl 8) or 84
+    private fun matchFrame(hpFrac: Double?, discColours: List<Int>): FakeFrame {
         val green = (70 shl 16) or (215 shl 8) or 80
         val barDark = (40 shl 16) or (30 shl 8) or 30
         val centres = listOf(
@@ -63,7 +64,7 @@ class PerceptionTest {
         )
         return FakeFrame { x, y ->
             var c: Int? = null
-            // HP bar: centre window, full length 5% of width, 4 px tall.
+            // HP bar: centre window, full length per Perception.HP_BAR_FULL_FRAC, 4 px tall.
             if (hpFrac != null) {
                 val w = 960
                 val full = (Perception.HP_BAR_FULL_FRAC * w).toInt()
@@ -75,7 +76,7 @@ class PerceptionTest {
                 }
             }
             for ((i, centre) in centres.withIndex()) {
-                val d = discColour(x, y, centre.first, centre.second, if (ready[i]) readyColour else cdColour, 960, 432)
+                val d = discColour(x, y, centre.first, centre.second, discColours[i], 960, 432)
                 if (d != null) c = d
             }
             c
@@ -84,7 +85,7 @@ class PerceptionTest {
 
     @Test
     fun fullHpAllSkillsReady() {
-        val state = Perception.read(matchFrame(1.0, listOf(true, true, true)), 1000)
+        val state = Perception.read(matchFrame(1.0, listOf(READY, READY, READY)), 1000)
         assertEquals(ScreenKind.MATCH, state.layar)
         assertTrue("darah was ${state.darahPersen}", state.darahPersen!! in 95..100)
         assertEquals(listOf(true, true, true), state.skillSiap)
@@ -92,7 +93,7 @@ class PerceptionTest {
 
     @Test
     fun halfHpUltOnCooldown() {
-        val state = Perception.read(matchFrame(0.5, listOf(true, true, false)), 2000)
+        val state = Perception.read(matchFrame(0.5, listOf(READY, READY, COOLDOWN)), 2000)
         assertEquals(ScreenKind.MATCH, state.layar)
         assertTrue("darah was ${state.darahPersen}", state.darahPersen!! in 42..58)
         assertEquals(listOf(true, true, false), state.skillSiap)
@@ -108,9 +109,39 @@ class PerceptionTest {
 
     @Test
     fun matchWithoutVisibleHpBarReadsNull() {
-        val state = Perception.read(matchFrame(null, listOf(true, false, true)), 4000)
+        val state = Perception.read(matchFrame(null, listOf(READY, COOLDOWN, READY)), 4000)
         assertEquals(ScreenKind.MATCH, state.layar)
         assertNull(state.darahPersen)
         assertEquals(listOf(true, false, true), state.skillSiap)
+    }
+
+    /** Level-1 HUD: icons exist but nothing is learned yet — dark discs, blue rims. */
+    @Test
+    fun unlearnedSkillsReadAsMatchButNothingReady() {
+        val state = Perception.read(matchFrame(1.0, listOf(UNLEARNED, UNLEARNED, UNLEARNED)), 5000)
+        assertEquals(ScreenKind.MATCH, state.layar)
+        assertTrue("darah was ${state.darahPersen}", state.darahPersen!! in 95..100)
+        assertEquals(listOf(false, false, false), state.skillSiap)
+    }
+
+    /** One stray bright-blue spot (a chat bubble, an ad) must not fake a match. */
+    @Test
+    fun singleBrightDiscIsNotAMatch() {
+        val state = Perception.read(matchFrame(null, listOf(GRASS_COLOUR, READY, GRASS_COLOUR)), 6000)
+        assertEquals(ScreenKind.OTHER, state.layar)
+        assertNull(state.darahPersen)
+    }
+
+    companion object {
+        /** Bright learned icon: lum ~160, dominance ~105 (measured ready range). */
+        val READY = (90 shl 16) or (180 shl 8) or 240
+
+        /** Dark icon under the cooldown shade: lum ~44, dominance ~52 (measured CD range). */
+        val COOLDOWN = (30 shl 16) or (42 shl 8) or 88
+
+        /** Dark not-yet-learned icon: lum ~50, dominance ~39 (measured level-1 range). */
+        val UNLEARNED = (35 shl 16) or (52 shl 8) or 82
+
+        val GRASS_COLOUR = (88 shl 16) or (108 shl 8) or 66
     }
 }

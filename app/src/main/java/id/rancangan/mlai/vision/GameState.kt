@@ -28,19 +28,22 @@ data class GameState(
     /**
      * Raw calibration values, kept so Fase 1's gate evaluation can tune
      * thresholds against human-checked frames instead of guessing:
-     * mean luminance of each skill disc, and the longest HP-green run as
-     * a fraction of the expected full bar length.
+     * mean luminance of each skill disc, blue dominance of each disc's
+     * rim, and the longest HP-green run as a fraction of the expected
+     * full bar length.
      */
     val skillLum: List<Double>,
+    val skillRimDom: List<Double>,
     val hpRunFrac: Double
 ) {
     /** One journal line (Modul 7): compact, stable format, easy to diff against a frame. */
     fun line(): String {
-        val darah = darahPersen?.toString() ?: "?"
+        val darah = darahPersen?.let { "$it%" } ?: "?"
         val skills = skillSiap.joinToString(",") { if (it == null) "?" else if (it) "siap" else "CD" }
         val lum = skillLum.joinToString(",") { "%.0f".format(it) }
-        return "t=%d layar=%s darah=%s%% skill=[%s] lum=[%s] hpRun=%.2f".format(
-            timestampMs, layar.name, darah, skills, lum, hpRunFrac
+        val rim = skillRimDom.joinToString(",") { "%.0f".format(it) }
+        return "t=%d layar=%s darah=%s skill=[%s] lum=[%s] rim=[%s] hpRun=%.2f".format(
+            timestampMs, layar.name, darah, skills, lum, rim, hpRunFrac
         )
     }
 }

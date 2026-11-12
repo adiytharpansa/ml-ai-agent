@@ -42,6 +42,8 @@ class CaptureService : Service() {
     private var imageReader: ImageReader? = null
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
+    private var displayListener: DisplayManager.DisplayListener? = null
+    private var densityDpi = 0
 
     private val accumulator = CaptureStatsAccumulator()
     private var frameWidth = 0
@@ -107,13 +109,9 @@ class CaptureService : Service() {
         captureThread = HandlerThread("capture").also { it.start() }
         captureHandler = Handler(captureThread!!.looper)
 
-        val wm = getSystemService(WindowManager::class.java)
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        wm?.defaultDisplay?.getRealMetrics(metrics)
-        val scale = if (metrics.widthPixels > MAX_WIDTH) MAX_WIDTH.toDouble() / metrics.widthPixels else 1.0
-        frameWidth = (metrics.widthPixels * scale).toInt().coerceAtLeast(2) and 0x7FFFFFFE // even
-        frameHeight = (metrics.heightPixels * scale).toInt().coerceAtLeast(2) and 0x7FFFFFFE
+        val size = currentCaptureSize()
+        frameWidth = size.first
+        frameHeight = size.second
 
         val mpm = getSystemService(MediaProjectionManager::class.java)
         projection = mpm?.getMediaProjection(resultCode, resultData)
@@ -125,23 +123,77 @@ class CaptureService : Service() {
             }
         }, captureHandler)
 
-        imageReader = ImageReader.newInstance(frameWidth, frameHeight, PixelFormat.RGBA_8888, 2)
-        imageReader?.setOnImageAvailableListener({ reader ->
-            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+        imageReader = newReader()
+
+        virtualDisplay = projection?.createVirtualDisplay(
+            "uji-jalur-capture",
+            frameWidth, frameHeight, densityDpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader?.surface, null, captureHandler
+        )
+        registerRotationWatcher()
+        CaptureStats.serviceRunning = true
+    }
+
+    /** Capture size for the display's CURRENT orientation, capped at [MAX_WIDTH], even dims. */
+    private fun currentCaptureSize(): Pair<Int, Int> {
+        val wm = getSystemService(WindowManager::class.java)
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm?.defaultDisplay?.getRealMetrics(metrics)
+        densityDpi = metrics.densityDpi
+        val scale = if (metrics.widthPixels > MAX_WIDTH) MAX_WIDTH.toDouble() / metrics.widthPixels else 1.0
+        val w = (metrics.widthPixels * scale).toInt().coerceAtLeast(2) and 0x7FFFFFFE
+        val h = (metrics.heightPixels * scale).toInt().coerceAtLeast(2) and 0x7FFFFFFE
+        return w to h
+    }
+
+    private fun newReader(): ImageReader {
+        val reader = ImageReader.newInstance(frameWidth, frameHeight, PixelFormat.RGBA_8888, 2)
+        reader.setOnImageAvailableListener({ r ->
+            val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
             try {
                 processFrame(image)
             } finally {
                 image.close()
             }
         }, captureHandler)
+        return reader
+    }
 
-        virtualDisplay = projection?.createVirtualDisplay(
-            "uji-jalur-capture",
-            frameWidth, frameHeight, metrics.densityDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader?.surface, null, captureHandler
-        )
-        CaptureStats.serviceRunning = true
+    /**
+     * The capture surface is created in whatever orientation the phone is
+     * in when the service starts (usually portrait, from the panel). If
+     * the phone then rotates into the landscape game, a fixed surface
+     * letterboxes the game into a band and every fractional read lands
+     * wrong — this bit Fase 1's first live test. On rotation, rebuild
+     * the reader at the new size and resize the virtual display to it.
+     */
+    private fun registerRotationWatcher() {
+        val dm = getSystemService(DisplayManager::class.java) ?: return
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) {}
+            override fun onDisplayRemoved(displayId: Int) {}
+            override fun onDisplayChanged(displayId: Int) {
+                if (displayId == android.view.Display.DEFAULT_DISPLAY) refreshSurfaceSize()
+            }
+        }
+        dm.registerDisplayListener(listener, captureHandler)
+        displayListener = listener
+    }
+
+    private fun refreshSurfaceSize() {
+        val (w, h) = currentCaptureSize()
+        if (w == frameWidth && h == frameHeight) return
+        frameWidth = w
+        frameHeight = h
+        try { imageReader?.close() } catch (_: Exception) {}
+        imageReader = newReader()
+        try {
+            virtualDisplay?.resize(w, h, densityDpi)
+            virtualDisplay?.surface = imageReader?.surface
+        } catch (_: Exception) {}
+        sampleSaved = false // keep a fresh sample in the new orientation too
     }
 
     private fun processFrame(image: Image) {
@@ -234,6 +286,12 @@ class CaptureService : Service() {
 
     private fun stopCapture() {
         CaptureStats.serviceRunning = false
+        displayListener?.let { listener ->
+            try {
+                getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(listener)
+            } catch (_: Exception) {}
+        }
+        displayListener = null
         try { virtualDisplay?.release() } catch (_: Exception) {}
         virtualDisplay = null
         try { imageReader?.close() } catch (_: Exception) {}
