@@ -354,9 +354,9 @@ class ShizukuTouchBackend(private val context: Context) : TouchBackend {
             downTimeMs, eventTimeMs, action, count, properties, coords,
             /* metaState = */ 0, /* buttonState = */ 0,
             /* xPrecision = */ 1f, /* yPrecision = */ 1f,
-            /* deviceId = */ 0, /* edgeFlags = */ 0
+            /* deviceId = */ 0, /* edgeFlags = */ 0,
+            /* source = */ InputDevice.SOURCE_TOUCHSCREEN, /* flags = */ 0
         )
-        event.source = InputDevice.SOURCE_TOUCHSCREEN
         return event
     }
 
