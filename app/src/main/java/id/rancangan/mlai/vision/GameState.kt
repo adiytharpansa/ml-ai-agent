@@ -11,7 +11,16 @@ enum class ScreenKind {
     /** The in-match HUD is on screen (skill cluster detected). */
     MATCH,
 
-    /** Anything else: lobby, menus, our own panel, a popup storm. */
+    /** The main lobby (hero showcase, bottom navigation strip). */
+    LOBI,
+
+    /** The Vs A.I. mode-select screen (Practice / Vs A.I. / Custom / 1VS1 cards). */
+    PILIH_MODE,
+
+    /** A results screen: the victory splash or the post-match scoreboard. */
+    HASIL,
+
+    /** Anything else: menus, our own panel, a popup storm, the splash screen. */
     OTHER
 }
 

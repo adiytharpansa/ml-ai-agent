@@ -132,6 +132,45 @@ class PerceptionTest {
         assertNull(state.darahPersen)
     }
 
+    /** Mode select: one flat dark-navy frame (its card art fakes discs — the signature must win). */
+    @Test
+    fun modeSelectHeaderReadsPilihMode() {
+        val navy = (42 shl 16) or (42 shl 8) or 58
+        val state = Perception.read(FakeFrame { _, _ -> navy }, 7000)
+        assertEquals(ScreenKind.PILIH_MODE, state.layar)
+        assertNull(state.darahPersen)
+        assertEquals(listOf(null, null, null), state.skillSiap)
+    }
+
+    /** Results: the middle of the frame is deep blue wall-to-wall. */
+    @Test
+    fun resultsBlueReadsHasil() {
+        val deepBlue = (30 shl 16) or (50 shl 8) or 110
+        val state = Perception.read(FakeFrame { _, _ -> deepBlue }, 8000)
+        assertEquals(ScreenKind.HASIL, state.layar)
+        assertEquals(listOf(null, null, null), state.skillSiap)
+    }
+
+    /** Main lobby: dark scene over a pale bottom navigation strip (landscape). */
+    @Test
+    fun lobbyStripReadsLobi() {
+        val dark = (60 shl 16) or (60 shl 8) or 55
+        val pale = (232 shl 16) or (232 shl 8) or 238
+        val frame = FakeFrame { _, y -> if (y >= (0.94 * 432).toInt()) pale else dark }
+        val state = Perception.read(frame, 9000)
+        assertEquals(ScreenKind.LOBI, state.layar)
+        assertNull(state.darahPersen)
+    }
+
+    /** A pale PORTRAIT screen (our own panel) is not the lobby. */
+    @Test
+    fun portraitLightFrameIsNotLobi() {
+        val white = (240 shl 16) or (240 shl 8) or 240
+        val frame = FakeFrame(width = 480, height = 800) { _, _ -> white }
+        val state = Perception.read(frame, 10000)
+        assertEquals(ScreenKind.OTHER, state.layar)
+    }
+
     companion object {
         /** Bright learned icon: lum ~160, dominance ~105 (measured ready range). */
         val READY = (90 shl 16) or (180 shl 8) or 240
